@@ -15,6 +15,11 @@ let isModelLoaded = false;
 let squatMachine = null;
 let benchMachine = null;
 let deadliftMachine = null;
+let pushUpMachine = null;
+let pullUpMachine = null;
+let shoulderPressMachine = null;
+let lateralRaiseMachine = null;
+let lungeMachine = null;
 
 // UI Elements
 let repCountDisplay, currentStateDisplay, formQualityDisplay;
@@ -85,6 +90,11 @@ function initializeStateMachines(difficulty) {
     squatMachine = new SquatStateMachine(difficulty);
     benchMachine = new BenchPressStateMachine(difficulty);
     deadliftMachine = new DeadliftStateMachine(difficulty);
+    pushUpMachine = new PushUpStateMachine(difficulty);
+    pullUpMachine = new PullUpStateMachine(difficulty);
+    shoulderPressMachine = new ShoulderPressStateMachine(difficulty);
+    lateralRaiseMachine = new LateralRaiseStateMachine(difficulty);
+    lungeMachine = new LungeStateMachine(difficulty);
     
     // Set current state machine based on selected exercise
     stateMachine = squatMachine;
@@ -144,10 +154,26 @@ function switchExercise(exercise) {
         case 'deadlift':
             stateMachine = deadliftMachine;
             break;
+        case 'pushup':
+            stateMachine = pushUpMachine;
+            break;
+        case 'pullup':
+            stateMachine = pullUpMachine;
+            break;
+        case 'shoulderpress':
+            stateMachine = shoulderPressMachine;
+            break;
+        case 'lateralraise':
+            stateMachine = lateralRaiseMachine;
+            break;
+        case 'lunge':
+            stateMachine = lungeMachine;
+            break;
     }
     
     updateRepCountDisplay();
-    showFeedback('info', `Switched to ${exercise.toUpperCase()}`);
+    const exerciseName = exercise.replace(/([A-Z])/g, ' $1').trim().toUpperCase();
+    showFeedback('info', `Switched to ${exerciseName}`);
 }
 
 // ==============================================
@@ -312,6 +338,21 @@ function processPose(keypoints) {
         case 'deadlift':
             processDeadlift(keypoints);
             break;
+        case 'pushup':
+            processPushUp(keypoints);
+            break;
+        case 'pullup':
+            processPullUp(keypoints);
+            break;
+        case 'shoulderpress':
+            processShoulderPress(keypoints);
+            break;
+        case 'lateralraise':
+            processLateralRaise(keypoints);
+            break;
+        case 'lunge':
+            processLunge(keypoints);
+            break;
     }
 }
 
@@ -460,8 +501,204 @@ function processDeadlift(keypoints) {
     });
 }
 
+/**
+ * Process push-up exercise (SIDE VIEW)
+ * @param {Array} keypoints - pose keypoints
+ */
+function processPushUp(keypoints) {
+    const shoulder = getKeypoint(keypoints, 5) || getKeypoint(keypoints, 6);
+    const elbow = getKeypoint(keypoints, 7) || getKeypoint(keypoints, 8);
+    const wrist = getKeypoint(keypoints, 9) || getKeypoint(keypoints, 10);
+    const hip = getKeypoint(keypoints, 11) || getKeypoint(keypoints, 12);
+    const ankle = getKeypoint(keypoints, 15) || getKeypoint(keypoints, 16);
+    
+    if (!shoulder || !elbow || !wrist) {
+        currentStateDisplay.textContent = 'Arms Not Detected';
+        return;
+    }
+    
+    const elbowAngle = calculateAngle(shoulder, elbow, wrist);
+    let bodyAlignment = null;
+    if (hip && ankle) {
+        bodyAlignment = calculateAngle(shoulder, hip, ankle);
+    }
+    
+    stateMachine.update({
+        elbow: elbowAngle,
+        bodyAlignment: bodyAlignment
+    });
+    
+    updateUI(stateMachine);
+    
+    displayDebugInfo({
+        'Elbow Angle': elbowAngle ? elbowAngle.toFixed(1) + '°' : 'N/A',
+        'Body Alignment': bodyAlignment ? bodyAlignment.toFixed(1) + '°' : 'N/A'
+    });
+}
+
+/**
+ * Process pull-up exercise (FRONT VIEW)
+ * @param {Array} keypoints - pose keypoints
+ */
+function processPullUp(keypoints) {
+    const leftShoulder = getKeypoint(keypoints, 5);
+    const rightShoulder = getKeypoint(keypoints, 6);
+    const leftElbow = getKeypoint(keypoints, 7);
+    const rightElbow = getKeypoint(keypoints, 8);
+    const leftWrist = getKeypoint(keypoints, 9);
+    const rightWrist = getKeypoint(keypoints, 10);
+    const leftHip = getKeypoint(keypoints, 11);
+    const rightHip = getKeypoint(keypoints, 12);
+    
+    let avgElbowAngle = null;
+    if (leftShoulder && leftElbow && leftWrist) {
+        avgElbowAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+    }
+    if (rightShoulder && rightElbow && rightWrist) {
+        const rightElbowAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
+        avgElbowAngle = avgElbowAngle ? (avgElbowAngle + rightElbowAngle) / 2 : rightElbowAngle;
+    }
+    
+    if (!avgElbowAngle) {
+        currentStateDisplay.textContent = 'Arms Not Detected';
+        return;
+    }
+    
+    const shoulder = getAveragePoint(leftShoulder, rightShoulder);
+    const hip = getAveragePoint(leftHip, rightHip);
+    const wrist = getAveragePoint(leftWrist, rightWrist);
+    
+    stateMachine.update(
+        { elbow: avgElbowAngle },
+        { shoulder: shoulder, hip: hip, wrist: wrist }
+    );
+    
+    updateUI(stateMachine);
+    
+    displayDebugInfo({
+        'Elbow Angle': avgElbowAngle ? avgElbowAngle.toFixed(1) + '°' : 'N/A',
+        'Shoulder Y': shoulder ? shoulder.y.toFixed(0) : 'N/A'
+    });
+}
+
+/**
+ * Process shoulder press exercise (FRONT VIEW)
+ * @param {Array} keypoints - pose keypoints
+ */
+function processShoulderPress(keypoints) {
+    const leftShoulder = getKeypoint(keypoints, 5);
+    const rightShoulder = getKeypoint(keypoints, 6);
+    const leftElbow = getKeypoint(keypoints, 7);
+    const rightElbow = getKeypoint(keypoints, 8);
+    const leftWrist = getKeypoint(keypoints, 9);
+    const rightWrist = getKeypoint(keypoints, 10);
+    
+    let leftElbowAngle = null;
+    let rightElbowAngle = null;
+    
+    if (leftShoulder && leftElbow && leftWrist) {
+        leftElbowAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+    }
+    if (rightShoulder && rightElbow && rightWrist) {
+        rightElbowAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
+    }
+    
+    if (!leftElbowAngle && !rightElbowAngle) {
+        currentStateDisplay.textContent = 'Arms Not Detected';
+        return;
+    }
+    
+    stateMachine.update(
+        { leftElbow: leftElbowAngle, rightElbow: rightElbowAngle },
+        { leftWrist, rightWrist, leftShoulder, rightShoulder }
+    );
+    
+    updateUI(stateMachine);
+    
+    displayDebugInfo({
+        'Left Elbow': leftElbowAngle ? leftElbowAngle.toFixed(1) + '°' : 'N/A',
+        'Right Elbow': rightElbowAngle ? rightElbowAngle.toFixed(1) + '°' : 'N/A'
+    });
+}
+
+/**
+ * Process lateral raise exercise (FRONT VIEW)
+ * @param {Array} keypoints - pose keypoints
+ */
+function processLateralRaise(keypoints) {
+    const leftShoulder = getKeypoint(keypoints, 5);
+    const rightShoulder = getKeypoint(keypoints, 6);
+    const leftElbow = getKeypoint(keypoints, 7);
+    const rightElbow = getKeypoint(keypoints, 8);
+    const leftWrist = getKeypoint(keypoints, 9);
+    const rightWrist = getKeypoint(keypoints, 10);
+    const leftHip = getKeypoint(keypoints, 11);
+    const rightHip = getKeypoint(keypoints, 12);
+    
+    let leftElbowAngle = null;
+    let rightElbowAngle = null;
+    
+    if (leftShoulder && leftElbow && leftWrist) {
+        leftElbowAngle = calculateAngle(leftShoulder, leftElbow, leftWrist);
+    }
+    if (rightShoulder && rightElbow && rightWrist) {
+        rightElbowAngle = calculateAngle(rightShoulder, rightElbow, rightWrist);
+    }
+    
+    if (!leftWrist && !rightWrist) {
+        currentStateDisplay.textContent = 'Arms Not Detected';
+        return;
+    }
+    
+    stateMachine.update(
+        { leftElbow: leftElbowAngle, rightElbow: rightElbowAngle },
+        { leftWrist, rightWrist, leftShoulder, rightShoulder, leftHip, rightHip }
+    );
+    
+    updateUI(stateMachine);
+    
+    const wristHeight = leftWrist && leftShoulder ? (leftWrist.y - leftShoulder.y).toFixed(0) : 'N/A';
+    displayDebugInfo({
+        'Left Elbow': leftElbowAngle ? leftElbowAngle.toFixed(1) + '°' : 'N/A',
+        'Right Elbow': rightElbowAngle ? rightElbowAngle.toFixed(1) + '°' : 'N/A',
+        'Wrist-Shoulder': wristHeight + ' px'
+    });
+}
+
+/**
+ * Process lunge exercise (SIDE VIEW)
+ * @param {Array} keypoints - pose keypoints
+ */
+function processLunge(keypoints) {
+    const hip = getKeypoint(keypoints, 11) || getKeypoint(keypoints, 12);
+    const knee = getKeypoint(keypoints, 13) || getKeypoint(keypoints, 14);
+    const ankle = getKeypoint(keypoints, 15) || getKeypoint(keypoints, 16);
+    
+    if (!hip || !knee || !ankle) {
+        currentStateDisplay.textContent = 'Leg Not Detected';
+        return;
+    }
+    
+    const kneeAngle = calculateAngle(hip, knee, ankle);
+    const legLength = calculateDistance(hip, ankle);
+    const kneeToeDistance = calculateHorizontalDistance(knee, ankle);
+    
+    stateMachine.update(
+        { knee: kneeAngle },
+        { kneeToe: kneeToeDistance, legLength: legLength }
+    );
+    
+    updateUI(stateMachine);
+    
+    displayDebugInfo({
+        'Knee Angle': kneeAngle ? kneeAngle.toFixed(1) + '°' : 'N/A',
+        'Leg Length': legLength ? legLength.toFixed(0) + ' px' : 'N/A'
+    });
+}
+
 // ==============================================
 // 6. UI UPDATE FUNCTIONS
+// ==============================================
 // ==============================================
 
 /**

@@ -72,11 +72,12 @@ header p {
 .exercise-buttons {
     display: flex;
     gap: 10px;
+    flex-wrap: wrap;
 }
 
 .exercise-btn {
-    padding: 12px 24px;
-    font-size: 1rem;
+    padding: 12px 20px;
+    font-size: 0.95rem;
     font-weight: bold;
     border: 2px solid var(--primary-color);
     background: transparent;
@@ -84,6 +85,7 @@ header p {
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s ease;
+    flex: 0 1 auto;
 }
 
 .exercise-btn:hover {
@@ -350,7 +352,7 @@ header p {
 
 .instruction-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     gap: 20px;
 }
 

@@ -371,7 +371,388 @@ class DeadliftStateMachine {
 }
 
 // ==============================================
-// 5. VOICE FEEDBACK USING WEB SPEECH API
+// 5. PUSH-UPS STATE MACHINE & LOGIC (SIDE VIEW)
+// ==============================================
+
+class PushUpStateMachine {
+    constructor(difficulty = 'beginner') {
+        this.state = 'up';
+        this.repCount = 0;
+        this.difficulty = difficulty;
+        this.feedbackMessages = [];
+        this.lastRepTime = 0;
+        
+        this.thresholds = difficulty === 'beginner' ? {
+            upElbowAngle: 160,
+            downElbowAngle: 100,
+            bodyAlignmentMin: 160,
+            bodyAlignmentIdeal: 165
+        } : {
+            upElbowAngle: 170,
+            downElbowAngle: 90,
+            bodyAlignmentMin: 165,
+            bodyAlignmentIdeal: 170
+        };
+    }
+    
+    update(angles) {
+        this.feedbackMessages = [];
+        
+        if (!angles.elbow) {
+            this.feedbackMessages.push({type: 'warning', text: 'Cannot detect arms - stand sideways to camera'});
+            return;
+        }
+        
+        const { elbow, bodyAlignment } = angles;
+        
+        if (bodyAlignment && bodyAlignment < this.thresholds.bodyAlignmentMin) {
+            this.feedbackMessages.push({type: 'error', text: 'Keep your body straight - engage core!'});
+        }
+        
+        switch(this.state) {
+            case 'up':
+                if (elbow < this.thresholds.downElbowAngle) {
+                    this.state = 'down';
+                }
+                break;
+                
+            case 'down':
+                if (elbow < this.thresholds.downElbowAngle) {
+                    // Good depth
+                } else if (elbow > this.thresholds.upElbowAngle) {
+                    this.feedbackMessages.push({type: 'warning', text: 'Go lower for full rep'});
+                }
+                
+                if (elbow > this.thresholds.upElbowAngle) {
+                    if (!bodyAlignment || bodyAlignment >= this.thresholds.bodyAlignmentMin) {
+                        this.repCount++;
+                        this.feedbackMessages.push({type: 'success', text: 'Good rep! ✓'});
+                    } else {
+                        this.feedbackMessages.push({type: 'error', text: 'Maintain plank position'});
+                    }
+                    this.state = 'up';
+                    this.lastRepTime = Date.now();
+                }
+                break;
+        }
+    }
+    
+    reset() {
+        this.repCount = 0;
+        this.state = 'up';
+    }
+}
+
+// ==============================================
+// 6. PULL-UPS STATE MACHINE & LOGIC (FRONT VIEW)
+// ==============================================
+
+class PullUpStateMachine {
+    constructor(difficulty = 'beginner') {
+        this.state = 'down';
+        this.repCount = 0;
+        this.difficulty = difficulty;
+        this.feedbackMessages = [];
+        this.lastRepTime = 0;
+        this.startShoulderY = null;
+        
+        this.thresholds = difficulty === 'beginner' ? {
+            downElbowAngle: 150,
+            upElbowAngle: 80,
+            minShoulderRise: 0.15,
+            maxHipMovement: 0.20
+        } : {
+            downElbowAngle: 160,
+            upElbowAngle: 70,
+            minShoulderRise: 0.18,
+            maxHipMovement: 0.15
+        };
+    }
+    
+    update(angles, positions) {
+        this.feedbackMessages = [];
+        
+        if (!angles.elbow || !positions.shoulder) {
+            this.feedbackMessages.push({type: 'warning', text: 'Face camera - ensure arms visible'});
+            return;
+        }
+        
+        const { elbow } = angles;
+        const { shoulder, hip } = positions;
+        
+        if (this.state === 'down' && this.startShoulderY === null) {
+            this.startShoulderY = shoulder.y;
+        }
+        
+        const shoulderRise = this.startShoulderY ? (this.startShoulderY - shoulder.y) : 0;
+        
+        switch(this.state) {
+            case 'down':
+                if (elbow < this.thresholds.upElbowAngle && shoulderRise > this.thresholds.minShoulderRise) {
+                    this.state = 'up';
+                }
+                
+                if (hip && this.startShoulderY) {
+                    const hipMovement = Math.abs(shoulder.y - hip.y);
+                    if (hipMovement > this.thresholds.maxHipMovement) {
+                        this.feedbackMessages.push({type: 'warning', text: 'No kipping - use controlled movement'});
+                    }
+                }
+                break;
+                
+            case 'up':
+                if (elbow > this.thresholds.downElbowAngle && shoulderRise < this.thresholds.minShoulderRise * 0.3) {
+                    this.repCount++;
+                    this.feedbackMessages.push({type: 'success', text: 'Great rep! ✓'});
+                    this.state = 'down';
+                    this.startShoulderY = shoulder.y;
+                    this.lastRepTime = Date.now();
+                } else if (elbow > this.thresholds.upElbowAngle + 20 && shoulderRise < this.thresholds.minShoulderRise * 0.5) {
+                    this.feedbackMessages.push({type: 'warning', text: 'Pull higher - chin over bar'});
+                }
+                break;
+        }
+    }
+    
+    reset() {
+        this.repCount = 0;
+        this.state = 'down';
+        this.startShoulderY = null;
+    }
+}
+
+// ==============================================
+// 7. SHOULDER PRESS STATE MACHINE & LOGIC (FRONT VIEW)
+// ==============================================
+
+class ShoulderPressStateMachine {
+    constructor(difficulty = 'beginner') {
+        this.state = 'down';
+        this.repCount = 0;
+        this.difficulty = difficulty;
+        this.feedbackMessages = [];
+        this.lastRepTime = 0;
+        
+        this.thresholds = difficulty === 'beginner' ? {
+            downElbowAngle: 100,
+            upElbowAngle: 160,
+            armBalanceTolerance: 20
+        } : {
+            downElbowAngle: 90,
+            upElbowAngle: 170,
+            armBalanceTolerance: 15
+        };
+    }
+    
+    update(angles, positions) {
+        this.feedbackMessages = [];
+        
+        if (!angles.leftElbow && !angles.rightElbow) {
+            this.feedbackMessages.push({type: 'warning', text: 'Face camera - ensure arms visible'});
+            return;
+        }
+        
+        const { leftElbow, rightElbow } = angles;
+        const { leftWrist, rightWrist, leftShoulder, rightShoulder } = positions;
+        
+        let avgElbow = null;
+        if (leftElbow && rightElbow) {
+            avgElbow = (leftElbow + rightElbow) / 2;
+            
+            if (Math.abs(leftElbow - rightElbow) > this.thresholds.armBalanceTolerance) {
+                this.feedbackMessages.push({type: 'warning', text: 'Balance both arms evenly'});
+            }
+        } else {
+            avgElbow = leftElbow || rightElbow;
+        }
+        
+        let wristsAboveShoulder = false;
+        if (leftWrist && leftShoulder && rightWrist && rightShoulder) {
+            wristsAboveShoulder = (leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y);
+        }
+        
+        switch(this.state) {
+            case 'down':
+                if (avgElbow > this.thresholds.upElbowAngle && wristsAboveShoulder) {
+                    this.state = 'up';
+                }
+                break;
+                
+            case 'up':
+                if (avgElbow < this.thresholds.upElbowAngle - 10) {
+                    this.feedbackMessages.push({type: 'warning', text: 'Fully extend arms at top'});
+                }
+                
+                if (avgElbow < this.thresholds.downElbowAngle) {
+                    this.repCount++;
+                    this.feedbackMessages.push({type: 'success', text: 'Good rep! ✓'});
+                    this.state = 'down';
+                    this.lastRepTime = Date.now();
+                }
+                break;
+        }
+    }
+    
+    reset() {
+        this.repCount = 0;
+        this.state = 'down';
+    }
+}
+
+// ==============================================
+// 8. LATERAL RAISES STATE MACHINE & LOGIC (FRONT VIEW)
+// ==============================================
+
+class LateralRaiseStateMachine {
+    constructor(difficulty = 'beginner') {
+        this.state = 'down';
+        this.repCount = 0;
+        this.difficulty = difficulty;
+        this.feedbackMessages = [];
+        this.lastRepTime = 0;
+        
+        this.thresholds = difficulty === 'beginner' ? {
+            heightTolerance: 0.1,
+            minElbowAngle: 150,
+            maxElbowAngle: 180
+        } : {
+            heightTolerance: 0.08,
+            minElbowAngle: 160,
+            maxElbowAngle: 180
+        };
+    }
+    
+    update(angles, positions) {
+        this.feedbackMessages = [];
+        
+        const { leftWrist, rightWrist, leftShoulder, rightShoulder, leftHip, rightHip } = positions;
+        
+        if (!leftWrist || !rightWrist || !leftShoulder || !rightShoulder) {
+            this.feedbackMessages.push({type: 'warning', text: 'Face camera - ensure arms visible'});
+            return;
+        }
+        
+        const leftWristRelative = leftWrist.y - leftShoulder.y;
+        const rightWristRelative = rightWrist.y - rightShoulder.y;
+        const avgWristRelative = (leftWristRelative + rightWristRelative) / 2;
+        
+        if (angles.leftElbow && angles.leftElbow < this.thresholds.minElbowAngle) {
+            this.feedbackMessages.push({type: 'warning', text: 'Keep arms slightly bent'});
+        }
+        
+        const refHeight = leftHip ? Math.abs(leftShoulder.y - leftHip.y) : 100;
+        const tolerance = refHeight * this.thresholds.heightTolerance;
+        
+        switch(this.state) {
+            case 'down':
+                if (avgWristRelative <= tolerance) {
+                    this.state = 'up';
+                }
+                break;
+                
+            case 'up':
+                if (avgWristRelative < -tolerance) {
+                    this.feedbackMessages.push({type: 'warning', text: 'Stop at shoulder height'});
+                }
+                
+                if (avgWristRelative > tolerance * 2) {
+                    this.repCount++;
+                    this.feedbackMessages.push({type: 'success', text: 'Good rep! ✓'});
+                    this.state = 'down';
+                    this.lastRepTime = Date.now();
+                }
+                break;
+        }
+    }
+    
+    reset() {
+        this.repCount = 0;
+        this.state = 'down';
+    }
+}
+
+// ==============================================
+// 9. LUNGES STATE MACHINE & LOGIC (SIDE VIEW)
+// ==============================================
+
+class LungeStateMachine {
+    constructor(difficulty = 'beginner') {
+        this.state = 'standing';
+        this.repCount = 0;
+        this.difficulty = difficulty;
+        this.feedbackMessages = [];
+        this.lastRepTime = 0;
+        
+        this.thresholds = difficulty === 'beginner' ? {
+            standingKneeAngle: 160,
+            descendKneeAngle: 120,
+            bottomKneeMin: 70,
+            bottomKneeMax: 100,
+            kneeToeRatio: 0.15
+        } : {
+            standingKneeAngle: 165,
+            descendKneeAngle: 130,
+            bottomKneeMin: 75,
+            bottomKneeMax: 95,
+            kneeToeRatio: 0.10
+        };
+    }
+    
+    update(angles, distances) {
+        this.feedbackMessages = [];
+        
+        if (!angles.knee) {
+            this.feedbackMessages.push({type: 'warning', text: 'Stand sideways - ensure leg visible'});
+            return;
+        }
+        
+        const { knee } = angles;
+        const { kneeToe, legLength } = distances;
+        
+        switch(this.state) {
+            case 'standing':
+                if (knee < this.thresholds.descendKneeAngle) {
+                    this.state = 'descending';
+                }
+                break;
+                
+            case 'descending':
+                if (knee >= this.thresholds.bottomKneeMin && knee <= this.thresholds.bottomKneeMax) {
+                    this.state = 'bottom';
+                }
+                
+                if (legLength && kneeToe / legLength > this.thresholds.kneeToeRatio) {
+                    this.feedbackMessages.push({type: 'warning', text: 'Keep knee behind toes'});
+                }
+                break;
+                
+            case 'bottom':
+                if (knee > this.thresholds.descendKneeAngle) {
+                    this.state = 'ascending';
+                } else if (knee < this.thresholds.bottomKneeMin) {
+                    this.feedbackMessages.push({type: 'warning', text: 'Lower your back knee more'});
+                }
+                break;
+                
+            case 'ascending':
+                if (knee > this.thresholds.standingKneeAngle) {
+                    this.repCount++;
+                    this.feedbackMessages.push({type: 'success', text: 'Good rep! ✓'});
+                    this.state = 'standing';
+                    this.lastRepTime = Date.now();
+                }
+                break;
+        }
+    }
+    
+    reset() {
+        this.repCount = 0;
+        this.state = 'standing';
+    }
+}
+
+// ==============================================
+// 10. VOICE FEEDBACK USING WEB SPEECH API
 // ==============================================
 
 class VoiceFeedback {
